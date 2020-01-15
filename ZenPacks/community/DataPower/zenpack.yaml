@@ -1,1 +1,263 @@
 name: ZenPacks.community.DataPower
+
+zProperties:
+  DEFAULTS:
+    category: DataPower
+  zDataPowerPort:
+    type: int
+    default: 5554
+  zDataPowerUsername:
+    type: string
+    default: ''
+  zDataPowerPassword:
+    type: password
+    default: ''
+
+class_relationships:
+  - DataPowerDevice 1:MC DataPowerDomain
+  - DataPowerDevice 1:MC DataPowerFileSystem
+  - DataPowerDevice 1:MC DataPowerInterface
+
+classes:
+  DataPowerDevice:
+    base: [zenpacklib.Device]
+    label: DataPower device
+    monitoring_templates: [DataPowerDevice]
+
+  DataPowerInterface:
+    base: [zenpacklib.IpInterface]
+    label: Network Interface
+    monitoring_templates: [DataPowerInterface]
+    properties:
+      adminstatus:
+        label: Admin Status
+        grid_display: true
+        label_width: 60
+        datapoint: intf_adminstatus
+        renderer: Zenoss.render.severity
+      operstatus:
+        label: Oper Status
+        grid_display: true
+        label_width: 60
+        datapoint: intf_operstatus
+        renderer: Zenoss.render.severity
+
+  DataPowerFileSystem:
+    base: [zenpacklib.Component]
+    label: File System
+    monitoring_templates: [DataPowerFileSystem]
+
+  DataPowerDomain:
+    base: [zenpacklib.Component]
+    label: Domain
+    monitoring_templates: [DataPowerDomain]
+
+device_classes:
+  /Server/DataPower:
+    zProperties:
+      zDeviceTemplates:
+        - Device
+      zCollectorPlugins:
+        - community.json.DataPowerDevice
+        - community.json.DataPowerInterface
+        - community.json.DataPowerFilesystem
+        - community.json.DataPowerDomain
+      zPythonClass: ZenPacks.community.DataPower.DataPowerDevice
+      zSnmpMonitorIgnore: true
+
+    templates:
+      Device:
+        targetPythonClass: ZenPacks.community.DataPower.DataPowerDevice
+        datasources:
+          cpu:
+            type: Python
+            plugin_classname: ZenPacks.community.DataPower.dsplugins.os.Cpu
+            datapoints:
+              cpuusage1:
+                rrdtype: GAUGE
+              cpuusage10:
+                rrdtype: GAUGE
+          memory:
+            type: Python
+            plugin_classname: ZenPacks.community.DataPower.dsplugins.os.Memory
+            datapoints:
+              totalmemory:
+                rrdtype: GAUGE
+              usedmemory:
+                rrdtype: GAUGE
+              usedmemoryperc:
+                rrdtype: GAUGE
+              reqmemory:
+                rrdtype: GAUGE
+              holdmemory:
+                rrdtype: GAUGE
+              reservedmemory:
+                rrdtype: GAUGE
+              installedmemory:
+                rrdtype: GAUGE
+        graphs:
+          CPU Usage:
+            units: percent
+            miny: 0
+            maxy: 100
+            graphpoints:
+              CPU 1 minute:
+                dpName: cpu_cpuusage1
+                lineType: AREA
+                sequence: 1
+              CPU 10 minute:
+                dpName: cpu_cpuusage10
+                lineType: AREA
+                sequence: 2
+          Memory Usage:
+            units: bytes
+            base: true
+            miny: 0
+            graphpoints:
+              Total Memory:
+                dpName: memory_totalmemory
+                sequence: 1
+              Used Memory:
+                dpName: memory_usedmemory
+                sequence: 2
+              Requested Memory:
+                dpName: memory_reqmemory
+                sequence: 3
+              Hold Memory:
+                dpName: memory_holdmemory
+                sequence: 4
+              Reserved Memory:
+                dpName: memory_reservedmemory
+                sequence: 5
+              Installed Memory:
+                dpName: memory_installedmemory
+                sequence: 6
+          Memory Usage Percentage:
+            units: percent
+            miny: 0
+            maxy: 100
+            graphpoints:
+              Memory Usage:
+                dpName: memory_usedmemoryperc
+                sequence: 1
+
+      DataPowerInterface:
+        # TODO: edit next, new custom class within ZP
+        targetPythonClass: ZenPacks.community.DataPower.DataPowerInterface
+        datasources:
+          intf:
+            type: Python
+            plugin_classname: ZenPacks.community.DataPower.dsplugins.os.Interface
+            datapoints:
+              adminstatus:
+                rrdtype: GAUGE
+              operstatus:
+                rrdtype: GAUGE
+              ifInOctets:
+                rrdtype: DERIVE
+              ifOutOctets:
+                rrdtype: DERIVE
+              ifInPackets:
+                rrdtype: DERIVE
+              ifOutPackets:
+                rrdtype: DERIVE
+              ifInErrors:
+                rrdtype: DERIVE
+              ifOutErrors:
+                rrdtype: DERIVE
+              ifInDrops:
+                rrdtype: DERIVE
+              ifOutDrops:
+                rrdtype: DERIVE
+        graphs:
+            Data Throughput:
+              units: bits/sec
+              miny: 0
+              graphpoints:
+                Receive:
+                  dpName: intf_ifInOctets
+                  rpn: "8,*"
+                  format: "%7.2lf%s"
+                  sequence: 1
+                Transmit:
+                  dpName: intf_ifOutOctets
+                  rpn: "8,*"
+                  format: "%7.2lf%s"
+                  sequence: 2
+            Packet Throughput:
+              units: packets/sec
+              miny: 0
+              graphpoints:
+                Receive:
+                  dpName: intf_ifInPackets
+                  format: "%7.2lf%s"
+                  sequence: 1
+                Transmit:
+                  dpName: intf_ifOutPackets
+                  format: "%7.2lf%s"
+                  sequence: 2
+            Error Rate:
+              units: errors/sec
+              miny: 0
+              graphpoints:
+                Receive Errors:
+                  dpName: intf_ifInErrors
+                  format: "%7.2lf%s"
+                  sequence: 1
+                RX Dropped:
+                  dpName: intf_ifInDrops
+                  format: "%7.2lf%s"
+                  sequence: 2
+                Transmit Errors:
+                  dpName: intf_ifOutErrors
+                  format: "%7.2lf%s"
+                  sequence: 3
+                TX Dropped:
+                  dpName: intf_ifOutDrops
+                  format: "%7.2lf%s"
+                  sequence: 4
+
+      DataPowerFileSystem:
+        targetPythonClass: ZenPacks.community.DataPower.DataPowerFileSystem
+        datasources:
+          filesystem:
+            type: Python
+            plugin_classname: ZenPacks.community.DataPower.dsplugins.os.DataPowerFileSystem
+            datapoints:
+              total:
+                rrdtype: GAUGE
+              used:
+                rrdtype: GAUGE
+              percentUsed:
+                rrdtype: GAUGE
+        graphs:
+            Utilization:
+              units: percent
+              miny: 0
+              maxy: 100
+              graphpoints:
+                Used:
+                  dpName: filesystem_percentUsed
+                  format: "%7.2lf%%"
+                  lineType: AREA
+                  sequence: 1
+            Usage:
+              miny: 0
+              graphpoints:
+                Used:
+                  dpName: filesystem_used
+                  format: "%7.2lf%s"
+                  lineType: AREA
+                  sequence: 1
+                Total:
+                  dpName: filesystem_total
+                  format: "%7.2lf%s"
+                  lineType: AREA
+                  sequence: 2
+
+      DataPowerDomain:
+        targetPythonClass: ZenPacks.community.DataPower.DataPowerDomain
+        datasources:
+          domain:
+            type: Python
+            plugin_classname: ZenPacks.community.DataPower.dsplugins.domain.DomainState
