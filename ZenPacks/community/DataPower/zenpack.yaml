@@ -12,6 +12,9 @@ zProperties:
   zDataPowerPassword:
     type: password
     default: ''
+  zDomainObjectIgnoreNames:
+    type: string
+    default: ''
 
 class_relationships:
   - DataPowerDevice 1:MC DataPowerDomain
@@ -51,6 +54,20 @@ classes:
     base: [zenpacklib.Component]
     label: Domain
     monitoring_templates: [DataPowerDomain]
+    properties:
+      object_status:
+        label: Object Status
+        grid_display: true
+        label_width: 70
+        datapoint: domainobject_object_status
+        renderer: Zenoss.render.severity
+      interface_state:
+        label: Interface State
+        grid_display: true
+        label_width: 70
+        datapoint: domain_interface_state
+        renderer: Zenoss.render.severity
+
 
 device_classes:
   /Server/DataPower:
@@ -142,7 +159,6 @@ device_classes:
                 sequence: 1
 
       DataPowerInterface:
-        # TODO: edit next, new custom class within ZP
         targetPythonClass: ZenPacks.community.DataPower.DataPowerInterface
         datasources:
           intf:
@@ -169,6 +185,12 @@ device_classes:
                 rrdtype: DERIVE
               ifOutDrops:
                 rrdtype: DERIVE
+        thresholds:
+          Network errors:
+            type: MinMaxThreshold
+            dsnames: [intf_ifInDrops,intf_ifOutDrops]
+            severity: 4
+            maxval: 0.5
         graphs:
             Data Throughput:
               units: bits/sec
@@ -261,3 +283,12 @@ device_classes:
           domain:
             type: Python
             plugin_classname: ZenPacks.community.DataPower.dsplugins.domain.DomainState
+            datapoints:
+              interface_state:
+                rrdtype: GAUGE
+          domainobject:
+            type: Python
+            plugin_classname: ZenPacks.community.DataPower.dsplugins.domain.DomainObject
+            datapoints:
+              object_status:
+                rrdtype: GAUGE

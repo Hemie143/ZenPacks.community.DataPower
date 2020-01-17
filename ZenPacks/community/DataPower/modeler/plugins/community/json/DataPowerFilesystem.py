@@ -26,6 +26,7 @@ class DataPowerFilesystem(PythonPlugin):
         'zDataPowerPort',
         'zDataPowerUsername',
         'zDataPowerPassword',
+        'zFileSystemMapIgnoreNames',
     )
 
     deviceProperties = PythonPlugin.deviceProperties + requiredProperties
@@ -80,19 +81,26 @@ class DataPowerFilesystem(PythonPlugin):
         knownFSre = '|'.join(knownFilesystems)
         foundFilesystems = set()
 
+        zFileSystemMapIgnoreNames = getattr(device, 'zFileSystemMapIgnoreNames', None)
+
         fs_maps = []
         rm = []
+        reFS = '(Free|Total)(.+)$'
+
         for filesystem in filesystems:
-            r = re.search(knownFSre, filesystem)
+            r = re.search(reFS, filesystem)
             if not r:
                 continue
-            fsType = r.group(0)
-            if fsType not in foundFilesystems:
-                foundFilesystems.add(fsType)
+            fs_type = r.group(2)
+            fs_name = '{} Space'.format(fs_type)
+            if zFileSystemMapIgnoreNames and re.search(zFileSystemMapIgnoreNames, fs_name):
+                continue
+            if fs_name not in foundFilesystems:
+                foundFilesystems.add(fs_name)
                 om_fs = ObjectMap()
-                om_fs.id = self.prepId(fsType)
-                om_fs.title = '{} Space'.format(fsType)
-                om_fs.mount = '{} Space'.format(fsType)
+                om_fs.id = self.prepId(fs_name)
+                om_fs.title = fs_name
+                om_fs.mount = fs_name
                 fs_maps.append(om_fs)
 
         rm.append(RelationshipMap(compname='',

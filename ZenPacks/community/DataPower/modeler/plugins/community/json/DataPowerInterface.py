@@ -92,11 +92,9 @@ class DataPowerInterface(PythonPlugin):
                 continue
 
             if_ip = interface["IP"]
-
             om_if = ObjectMap()
             om_if.id = self.prepId(if_name)
-            om_if.title = if_name
-
+            om_if.title = '{} ({})'.format(if_name, if_ip)
             if if_ip:
                 if_netmask = interface["PrefixLength"]
                 om_if.setIpAddresses = ['{}/{}'.format(if_ip, if_netmask)]

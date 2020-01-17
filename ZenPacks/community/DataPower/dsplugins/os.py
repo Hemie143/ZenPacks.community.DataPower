@@ -1,6 +1,7 @@
 import json
 import logging
 import base64
+import re
 
 # Twisted Imports
 from twisted.internet.defer import returnValue, DeferredSemaphore, DeferredList, inlineCallbacks
@@ -59,13 +60,6 @@ class Cpu(PythonDataSourcePlugin):
         log.debug('Success job - result is {}'.format(result))
         data = self.new_data()
         result = json.loads(result)
-
-        ds0 = config.datasources[0]
-        log.debug('ds0.component: {}'.format(ds0.component))
-        log.debug('ds0.datasource: {}'.format(ds0.datasource))
-        for point in ds0.points:
-            log.debug('point.id: {}'.format(point.id))
-
 
         data['values'][None]['cpu_cpuusage1'] = result['CPUUsage']['oneMinute']
         data['values'][None]['cpu_cpuusage10'] = result['CPUUsage']['tenMinutes']
@@ -190,16 +184,18 @@ class Interface(PythonDataSourcePlugin):
         log.debug('Success job - result is {}'.format(result))
         data = self.new_data()
         result = json.loads(result)['NetworkInterfaceStatus']
-        # log.debug('CCC result: {}'.format(len(result)))
-        for interface in result:
-            if_name = interface['Name']
-            if_id = prepId(if_name)
+
+        for datasource in config.datasources:
+            if_id = datasource.component
+            for interface in result:
+                # TODO : enhance this, as it will work only if the id is identical to the interface name
+                if r['Name'] == if_id:
+                    result.remove(interface)
+                    break
             adminStatusText = interface['AdminStatus']
             operStatusText = interface['OperStatus']
             adminStatusVal = self.if_adminstatus.get(adminStatusText, 3)
             operStatusVal = self.if_adminstatus.get(operStatusText, 3)
-            log.debug("CCC {}: Adminstatus: {}".format(if_name, adminStatusText))
-            log.debug("CCC {}: Operstatus : {}".format(if_name, operStatusText))
             data['values'][if_id]['adminstatus'] = adminStatusVal
             data['values'][if_id]['operstatus'] = operStatusVal
             data['events'].append({
@@ -208,8 +204,8 @@ class Interface(PythonDataSourcePlugin):
                 'severity': adminStatusVal,
                 'eventKey': 'DataPowerInterface',
                 'eventClassKey': 'DataPowerInterface',
-                'summary': 'Interface {} - Admin Status is {}'.format(if_name, adminStatusText),
-                'message': 'Interface {} - Admin Status is {}'.format(if_name, adminStatusText),
+                'summary': 'Interface {} - Admin Status is {}'.format(if_id, adminStatusText),
+                'message': 'Interface {} - Admin Status is {}'.format(if_id, adminStatusText),
                 'eventClass': '/Status/Interface',
             })
             data['events'].append({
@@ -218,8 +214,8 @@ class Interface(PythonDataSourcePlugin):
                 'severity': operStatusVal,
                 'eventKey': 'DataPowerInterface',
                 'eventClassKey': 'DataPowerInterface',
-                'summary': 'Interface {} - Admin Status is {}'.format(if_name, operStatusText),
-                'message': 'Interface {} - Admin Status is {}'.format(if_name, operStatusText),
+                'summary': 'Interface {} - Admin Status is {}'.format(if_id, operStatusText),
+                'message': 'Interface {} - Admin Status is {}'.format(if_id, operStatusText),
                 'eventClass': '/Status/Interface',
             })
 
@@ -231,61 +227,6 @@ class Interface(PythonDataSourcePlugin):
             data['values'][if_id]['ifOutErrors'] = interface['TxErrors2']
             data['values'][if_id]['ifInDrops'] = interface['RxDrops2']
             data['values'][if_id]['ifOutDrops'] = interface['TxDrops2']
-        '''
-        "InterfaceIndex" : 7,
-        "InterfaceType" : "Ethernet",
-        "Name" : "eth3",
-        "AdminStatus" : "up",
-        "OperStatus" : "up",
-        "IPType" : "ipv4",
-        "IP" : "10.1.20.161",
-        "PrefixLength" : 24,
-        "MACAddress" : "00:50:56:92:05:24",
-        "MTU" : 1500,
-        "RxHCBytes" : 88960492,
-        "RxHCPackets" : 959945,
-        "RxErrors2" : 0,
-        "RxDrops2" : 123,
-        "TxHCBytes" : 4571804,
-        "TxHCPackets" : 67471,
-        "TxErrors2" : 0,
-        "TxDrops2" : 0},
-        '''
-
-
-        '''
-                   if_name = interface["Name"]
-            if zInterfaceMapIgnoreNames and re.search(zInterfaceMapIgnoreNames, if_name):
-                continue
-            if_type = interface["IPType"]
-            if zInterfaceMapIgnoreTypes and re.search(zInterfaceMapIgnoreTypes, if_type):
-                continue
-
-            if_ip = interface["IP"]
-
-            om_if = ObjectMap()
-            om_if.id = self.prepId(if_name)
-        '''
-
-        '''
-        data['values'][None]['memory_totalmemory'] = result['MemoryStatus']['TotalMemory']
-        data['values'][None]['memory_usedmemory'] = result['MemoryStatus']['UsedMemory']
-        data['values'][None]['memory_reqmemory'] = result['MemoryStatus']['ReqMemory']
-        data['values'][None]['memory_holdmemory'] = result['MemoryStatus']['HoldMemory']
-        data['values'][None]['memory_reservedmemory'] = result['MemoryStatus']['ReservedMemory']
-        data['values'][None]['memory_installedmemory'] = result['MemoryStatus']['InstalledMemory']
-        test = float(result['MemoryStatus']['UsedMemory']) / result['MemoryStatus']['TotalMemory'] * 100
-        log.debug('test: {}'.format(test))
-        data['values'][None]['memory_usedmemoryperc'] = float(result['MemoryStatus']['UsedMemory']) / \
-                                                        result['MemoryStatus']['TotalMemory'] * 100
-        log.debug('freememory: {}'.format(result['MemoryStatus']['FreeMemory']))
-        log.debug('memory_usedmemoryperc: {}'.format(data['values'][None]['memory_usedmemoryperc']))
-        log.debug('Memory Data: {}'.format(data))
-        '''
-
-        '''              
-              usedmemoryperc: usedmemoryperc
-        '''
 
         return data
 
@@ -336,24 +277,16 @@ class DataPowerFileSystem(PythonDataSourcePlugin):
         log.debug('Success job - result is {}'.format(result))
         data = self.new_data()
         result = json.loads(result)
+        filesystem_metrics = result['FilesystemStatus']
 
-        total = result['FilesystemStatus']['TotalEncrypted']
-        free = result['FilesystemStatus']['FreeEncrypted']
-        data['values']['Encrypted']['filesystem_total'] = total
-        data['values']['Encrypted']['filesystem_used'] = total - free
-        data['values']['Encrypted']['filesystem_percentUsed'] = (total - free) / float(total) * 100
-
-        total = result['FilesystemStatus']['TotalTemporary']
-        free = result['FilesystemStatus']['FreeTemporary']
-        data['values']['Temporary']['filesystem_total'] = total
-        data['values']['Temporary']['filesystem_used'] = total - free
-        data['values']['Temporary']['filesystem_percentUsed'] = (total - free) / float(total) * 100
-
-        total = result['FilesystemStatus']['TotalInternal']
-        free = result['FilesystemStatus']['FreeInternal']
-        data['values']['Internal']['filesystem_total'] = total
-        data['values']['Internal']['filesystem_used'] = total - free
-        data['values']['Internal']['filesystem_percentUsed'] = (total - free) / float(total) * 100
+        for datasource in config.datasources:
+            fs_id = datasource.component
+            fs_type = fs_id.split(' ')[0]
+            total = filesystem_metrics['Total{}'.format(fs_type)]
+            free = filesystem_metrics['Free{}'.format(fs_type)]
+            data['values'][fs_id]['filesystem_total'] = total
+            data['values'][fs_id]['filesystem_used'] = total - free
+            data['values'][fs_id]['filesystem_percentUsed'] = (total - free) / float(total) * 100
 
         return data
 

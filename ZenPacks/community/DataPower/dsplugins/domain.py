@@ -21,6 +21,10 @@ class DomainState(PythonDataSourcePlugin):
         'zDataPowerPassword',
     )
 
+    domain_if_state = {
+        'ok': 0,
+    }
+
     @staticmethod
     def add_tag(result, label):
         return tuple((label, result))
@@ -59,17 +63,28 @@ class DomainState(PythonDataSourcePlugin):
         log.debug('Success job - result is {}'.format(result))
         data = self.new_data()
         result = json.loads(result)
+        domain_status = result['DomainStatus']
 
-        ds0 = config.datasources[0]
-        log.debug('ds0.component: {}'.format(ds0.component))
-        log.debug('ds0.datasource: {}'.format(ds0.datasource))
-        for point in ds0.points:
-            log.debug('point.id: {}'.format(point.id))
-
-
-        data['values'][None]['cpu_cpuusage1'] = result['CPUUsage']['oneMinute']
-        data['values'][None]['cpu_cpuusage10'] = result['CPUUsage']['tenMinutes']
-        log.debug('CPU Data: {}'.format(data))
+        for datasource in config.datasources:
+            d_id = datasource.component
+            for domain in domain_status:
+                # TODO : enhance this, as it will work only if the id is identical to the interface name
+                if domain['Domain'] == d_id:
+                    domain_status.remove(domain)
+                    break
+            interface_state_text = domain['InterfaceState']
+            interface_state = self.domain_if_state.get(interface_state_text, 3)
+            data['values'][d_id]['interface_state'] = interface_state
+            data['events'].append({
+                'device': config.id,
+                'component': d_id,
+                'severity': interface_state,
+                'eventKey': 'DataPowerDomain',
+                'eventClassKey': 'DataPowerDomain',
+                'summary': 'Domain {} - Interface State is {}'.format(d_id, interface_state_text),
+                'message': 'Domain {} - Interface State is {}'.format(d_id, interface_state_text),
+                'eventClass': '/Status/dpDomain',
+            })
         return data
 
     def onError(self, result, config):
@@ -78,11 +93,12 @@ class DomainState(PythonDataSourcePlugin):
         return {}
 
 
-class DomainState(PythonDataSourcePlugin):
+class DomainObject(PythonDataSourcePlugin):
     proxy_attributes = (
         'zDataPowerPort',
         'zDataPowerUsername',
         'zDataPowerPassword',
+        'zDomainObjectIgnoreNames',
     )
 
     @staticmethod
@@ -91,13 +107,14 @@ class DomainState(PythonDataSourcePlugin):
 
     @classmethod
     def config_key(cls, datasource, context):
-        log.debug('In config_key {} {} {}'.format(context.device().id, datasource.getCycleTime(context),
-                                                  'Domain'))
+        log.debug('In config_key {} {} {} {}'.format(context.device().id, datasource.getCycleTime(context), context.id,
+                                                  'DomainObject'))
 
         return (
             context.device().id,
             datasource.getCycleTime(context),
-            'Domain'
+            context.id,
+            'DomainObject'
         )
 
     @inlineCallbacks
@@ -109,31 +126,55 @@ class DomainState(PythonDataSourcePlugin):
             returnValue(None)
 
         ds0 = config.datasources[0]
-        url = "https://{}:{}/mgmt/status/default/DomainStatus".format(ip_address, ds0.zDataPowerPort)
-        log.debug('url: {}'.format(url))
         basicAuth = base64.encodestring('{}:{}'.format(ds0.zDataPowerUsername, ds0.zDataPowerPassword))
         authHeader = "Basic " + basicAuth.strip()
         headers = {"Authorization": authHeader,
                    "User-Agent": "Mozilla/3.0Gold",
                    }
-        d = yield getPage(url, headers=headers)
+
+        for datasource in config.datasources:
+            d_id = datasource.component
+            url = "https://{}:{}/mgmt/status/{}/ObjectStatus".format(ip_address, datasource.zDataPowerPort, d_id)
+            log.debug('url: {}'.format(url))
+            d = yield getPage(url, headers=headers)
+
         returnValue(d)
 
     def onSuccess(self, result, config):
-        log.debug('Success job - result is {}'.format(result))
+        # log.debug('AAA Success job - result is {}'.format(result))
         data = self.new_data()
         result = json.loads(result)
 
         ds0 = config.datasources[0]
-        log.debug('ds0.component: {}'.format(ds0.component))
-        log.debug('ds0.datasource: {}'.format(ds0.datasource))
-        for point in ds0.points:
-            log.debug('point.id: {}'.format(point.id))
+        ignoreNames = ds0.zDomainObjectIgnoreNames
+        domain_id = ds0.component
+        object_status = result['ObjectStatus']
+        domain_state_text = 'up'
+        domain_state = 0
+        message = []
+        for object in object_status:
+            objectname = object['Name']
+            if ignoreNames and re.search(ignoreNames, objectname):
+                continue
+            opstate = object['OpState']
+            adminstate = object['AdminState']
+            if adminstate == 'enabled' and opstate != "up":
+                domain_state_text = 'down'
+                domain_state = 4
+                message.append('Object {} of Class {} is {}: {}'.format(objectname, object['Class'], opstate,
+                                                                        object['ErrorCode']))
 
-
-        data['values'][None]['cpu_cpuusage1'] = result['CPUUsage']['oneMinute']
-        data['values'][None]['cpu_cpuusage10'] = result['CPUUsage']['tenMinutes']
-        log.debug('CPU Data: {}'.format(data))
+        data['values'][domain_id]['object_status'] = domain_state
+        data['events'].append({
+            'device': config.id,
+            'component': domain_id,
+            'severity': domain_state,
+            'eventKey': 'DataPowerDomain',
+            'eventClassKey': 'DataPowerDomain',
+            'summary': 'Domain {} - Object State is {}'.format(domain_id, domain_state_text),
+            'message': '\r\n'.join(message),
+            'eventClass': '/Status/dpDomain',
+        })
         return data
 
     def onError(self, result, config):
