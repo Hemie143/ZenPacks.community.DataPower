@@ -14,18 +14,31 @@ zProperties:
     default: ''
   zDomainObjectIgnoreNames:
     type: string
-    default: ''
+    default: '(default-gateway-peering|gateway-peering-manager)'
 
 class_relationships:
   - DataPowerDevice 1:MC DataPowerDomain
+    #TODO: Next relationship should be 1:1, but the modeling fails
+  - DataPowerDomain 1:MC DataPowerGateway
   - DataPowerDevice 1:MC DataPowerFileSystem
   - DataPowerDevice 1:MC DataPowerInterface
+
+event_classes:
+  /Status/DataPower/Domain:
+    remove: false
+  /Status/DataPower/GatewayService:
+    remove: false
 
 classes:
   DataPowerDevice:
     base: [zenpacklib.Device]
     label: DataPower device
     monitoring_templates: [DataPowerDevice]
+    properties:
+      get_domains:
+        grid_display: false
+        api_only: true
+        api_backendtype: method
 
   DataPowerInterface:
     base: [zenpacklib.IpInterface]
@@ -68,6 +81,30 @@ classes:
         datapoint: domain_interface_state
         renderer: Zenoss.render.severity
 
+  DataPowerGateway:
+    base: [zenpacklib.Component]
+    label: Gateway Service
+    monitoring_templates: [DataPowerGateway]
+    properties:
+      gateway_address:
+        label: Alias
+        grid_display: true
+        label_width: 120
+      gateway_ip:
+        label: IP address
+        grid_display: true
+        label_width: 70
+        renderer: Zenoss.render.ipAddress
+      gateway_port:
+        label: Port
+        grid_display: true
+        label_width: 50
+      connect_status:
+        label: Status
+        grid_display: true
+        label_width: 70
+        datapoint: gw_status
+        renderer: Zenoss.render.severity
 
 device_classes:
   /Server/DataPower:
@@ -79,6 +116,7 @@ device_classes:
         - community.json.DataPowerInterface
         - community.json.DataPowerFilesystem
         - community.json.DataPowerDomain
+        - community.json.DataPowerGateway
       zPythonClass: ZenPacks.community.DataPower.DataPowerDevice
       zSnmpMonitorIgnore: true
 
@@ -169,26 +207,34 @@ device_classes:
                 rrdtype: GAUGE
               operstatus:
                 rrdtype: GAUGE
-              ifInOctets:
+              ifinoctets:
                 rrdtype: DERIVE
-              ifOutOctets:
+                rrdmin: 0
+              ifoutoctets:
                 rrdtype: DERIVE
-              ifInPackets:
+                rrdmin: 0
+              ifinpackets:
                 rrdtype: DERIVE
-              ifOutPackets:
+                rrdmin: 0
+              ifoutpackets:
                 rrdtype: DERIVE
-              ifInErrors:
+                rrdmin: 0
+              ifinerrors:
                 rrdtype: DERIVE
-              ifOutErrors:
+                rrdmin: 0
+              ifouterrors:
                 rrdtype: DERIVE
-              ifInDrops:
+                rrdmin: 0
+              ifindrops:
                 rrdtype: DERIVE
-              ifOutDrops:
+                rrdmin: 0
+              ifoutdrops:
                 rrdtype: DERIVE
+                rrdmin: 0
         thresholds:
           Network errors:
             type: MinMaxThreshold
-            dsnames: [intf_ifInDrops,intf_ifOutDrops]
+            dsnames: [intf_ifindrops,intf_ifoutdrops]
             severity: 4
             maxval: 0.5
         graphs:
@@ -197,12 +243,12 @@ device_classes:
               miny: 0
               graphpoints:
                 Receive:
-                  dpName: intf_ifInOctets
+                  dpName: intf_ifinoctets
                   rpn: "8,*"
                   format: "%7.2lf%s"
                   sequence: 1
                 Transmit:
-                  dpName: intf_ifOutOctets
+                  dpName: intf_ifoutoctets
                   rpn: "8,*"
                   format: "%7.2lf%s"
                   sequence: 2
@@ -211,11 +257,11 @@ device_classes:
               miny: 0
               graphpoints:
                 Receive:
-                  dpName: intf_ifInPackets
+                  dpName: intf_ifinpackets
                   format: "%7.2lf%s"
                   sequence: 1
                 Transmit:
-                  dpName: intf_ifOutPackets
+                  dpName: intf_ifoutpackets
                   format: "%7.2lf%s"
                   sequence: 2
             Error Rate:
@@ -223,19 +269,19 @@ device_classes:
               miny: 0
               graphpoints:
                 Receive Errors:
-                  dpName: intf_ifInErrors
+                  dpName: intf_ifinerrors
                   format: "%7.2lf%s"
                   sequence: 1
                 RX Dropped:
-                  dpName: intf_ifInDrops
+                  dpName: intf_ifindrops
                   format: "%7.2lf%s"
                   sequence: 2
                 Transmit Errors:
-                  dpName: intf_ifOutErrors
+                  dpName: intf_ifouterrors
                   format: "%7.2lf%s"
                   sequence: 3
                 TX Dropped:
-                  dpName: intf_ifOutDrops
+                  dpName: intf_ifoutdrops
                   format: "%7.2lf%s"
                   sequence: 4
 
@@ -292,3 +338,14 @@ device_classes:
             datapoints:
               object_status:
                 rrdtype: GAUGE
+
+      DataPowerGateway:
+        targetPythonClass: ZenPacks.community.DataPower.DataPowerGateway
+        datasources:
+          status:
+            type: Python
+            plugin_classname: ZenPacks.community.DataPower.dsplugins.domain.GatewayService
+            datapoints:
+              gw_status:
+                rrdtype: GAUGE
+

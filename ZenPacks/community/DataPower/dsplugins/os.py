@@ -187,17 +187,27 @@ class Interface(PythonDataSourcePlugin):
 
         for datasource in config.datasources:
             if_id = datasource.component
+            log.debug('AAA if_id: {}'.format(if_id))
             for interface in result:
                 # TODO : enhance this, as it will work only if the id is identical to the interface name
-                if r['Name'] == if_id:
+                if interface['Name'] == if_id:
                     result.remove(interface)
                     break
             adminStatusText = interface['AdminStatus']
             operStatusText = interface['OperStatus']
             adminStatusVal = self.if_adminstatus.get(adminStatusText, 3)
-            operStatusVal = self.if_adminstatus.get(operStatusText, 3)
-            data['values'][if_id]['adminstatus'] = adminStatusVal
-            data['values'][if_id]['operstatus'] = operStatusVal
+            operStatusVal = self.if_operstatus.get(operStatusText, 3)
+            data['values'][if_id]['intf_adminstatus'] = adminStatusVal
+            data['values'][if_id]['intf_operstatus'] = operStatusVal
+            data['values'][if_id]['intf_ifinoctets'] = interface['RxHCBytes']
+            data['values'][if_id]['intf_ifoutoctets'] = interface['TxHCBytes']
+            data['values'][if_id]['intf_ifinpackets'] = interface['RxHCPackets']
+            data['values'][if_id]['intf_ifoutpackets'] = interface['TxHCPackets']
+            data['values'][if_id]['intf_ifinerrors'] = interface['RxErrors2']
+            data['values'][if_id]['intf_ifouterrors'] = interface['TxErrors2']
+            data['values'][if_id]['intf_ifindrops'] = interface['RxDrops2']
+            data['values'][if_id]['intf_ifoutdrops'] = interface['TxDrops2']
+
             data['events'].append({
                 'device': config.id,
                 'component': if_id,
@@ -219,14 +229,7 @@ class Interface(PythonDataSourcePlugin):
                 'eventClass': '/Status/Interface',
             })
 
-            data['values'][if_id]['ifInOctets'] = interface['RxHCBytes']
-            data['values'][if_id]['ifOutOctets'] = interface['TxHCBytes']
-            data['values'][if_id]['ifInPackets'] = interface['RxHCPackets']
-            data['values'][if_id]['ifOutPackets'] = interface['TxHCPackets']
-            data['values'][if_id]['ifInErrors'] = interface['RxErrors2']
-            data['values'][if_id]['ifOutErrors'] = interface['TxErrors2']
-            data['values'][if_id]['ifInDrops'] = interface['RxDrops2']
-            data['values'][if_id]['ifOutDrops'] = interface['TxDrops2']
+        log.debug('data: {}'.format(data))
 
         return data
 

@@ -1,10 +1,14 @@
 import json
 import logging
 import base64
+import re
 
 # Twisted Imports
+from twisted.internet import reactor
 from twisted.internet.defer import returnValue, DeferredSemaphore, DeferredList, inlineCallbacks
-from twisted.web.client import getPage
+from twisted.web.client import getPage, Agent, readBody
+from twisted.web.http_headers import Headers
+from twisted.internet.error import TimeoutError
 
 # Zenoss imports
 from ZenPacks.zenoss.PythonCollector.datasources.PythonDataSource import PythonDataSourcePlugin
@@ -83,7 +87,7 @@ class DomainState(PythonDataSourcePlugin):
                 'eventClassKey': 'DataPowerDomain',
                 'summary': 'Domain {} - Interface State is {}'.format(d_id, interface_state_text),
                 'message': 'Domain {} - Interface State is {}'.format(d_id, interface_state_text),
-                'eventClass': '/Status/dpDomain',
+                'eventClass': '/Status/DataPower/Domain',
             })
         return data
 
@@ -108,7 +112,7 @@ class DomainObject(PythonDataSourcePlugin):
     @classmethod
     def config_key(cls, datasource, context):
         log.debug('In config_key {} {} {} {}'.format(context.device().id, datasource.getCycleTime(context), context.id,
-                                                  'DomainObject'))
+                                                     'DomainObject'))
 
         return (
             context.device().id,
@@ -141,7 +145,7 @@ class DomainObject(PythonDataSourcePlugin):
         returnValue(d)
 
     def onSuccess(self, result, config):
-        # log.debug('AAA Success job - result is {}'.format(result))
+        # log.debug('Success job - result is {}'.format(result))
         data = self.new_data()
         result = json.loads(result)
 
@@ -155,6 +159,7 @@ class DomainObject(PythonDataSourcePlugin):
         for object in object_status:
             objectname = object['Name']
             if ignoreNames and re.search(ignoreNames, objectname):
+                # (default-gateway-peering)
                 continue
             opstate = object['OpState']
             adminstate = object['AdminState']
@@ -169,11 +174,11 @@ class DomainObject(PythonDataSourcePlugin):
             'device': config.id,
             'component': domain_id,
             'severity': domain_state,
-            'eventKey': 'DataPowerDomain',
-            'eventClassKey': 'DataPowerDomain',
+            'eventKey': 'DataPowerDomainObject',
+            'eventClassKey': 'DataPowerDomainObject',
             'summary': 'Domain {} - Object State is {}'.format(domain_id, domain_state_text),
             'message': '\r\n'.join(message),
-            'eventClass': '/Status/dpDomain',
+            'eventClass': '/Status/DataPower/Domain',
         })
         return data
 
@@ -181,4 +186,90 @@ class DomainObject(PythonDataSourcePlugin):
         log.error('Error - result is {}'.format(result))
         # TODO: send event of collection failure
         return {}
+
+
+class GatewayService(PythonDataSourcePlugin):
+    proxy_attributes = (
+        'zDataPowerPort',
+        'zDataPowerUsername',
+        'zDataPowerPassword',
+    )
+
+    @staticmethod
+    def add_tag(result, label):
+        return tuple((label, result))
+
+    @classmethod
+    def config_key(cls, datasource, context):
+        log.debug('In config_key {} {} {} {}'.format(context.device().id, datasource.getCycleTime(context), context.id,
+                                                     'GatewayService'))
+
+        return (
+            context.device().id,
+            datasource.getCycleTime(context),
+            context.id,
+            'GatewayService'
+        )
+
+    @classmethod
+    def params(cls, datasource, context):
+        log.info('Starting GatewayService params')
+        params = {}
+        params['gateway_ip'] = context.gateway_ip
+        params['gateway_port'] = context.gateway_port
+        return params
+
+    @inlineCallbacks
+    def collect(self, config):
+        log.debug('Starting GatewayService collect')
+        ip_address = config.manageIp
+        if not ip_address:
+            log.error("%s: IP Address cannot be empty", device.id)
+            returnValue(None)
+
+        agent = Agent(reactor)
+
+        ds0 = config.datasources[0]
+        basicAuth = base64.encodestring('{}:{}'.format(ds0.zDataPowerUsername, ds0.zDataPowerPassword))
+        authHeader = "Basic " + basicAuth.strip()
+        headers = {"Authorization": [authHeader],
+                   "User-Agent": ['Mozilla/3.0Gold'],
+                   }
+
+        ds0 = config.datasources[0]
+        gateway_ip = ds0.params['gateway_ip']
+        gateway_port = ds0.params['gateway_port']
+        url = "https://{}:{}".format(gateway_ip, gateway_port)
+        response = None
+        severity = 3
+        msg = None
+        try:
+            response = yield agent.request('GET', url, Headers(headers))
+            severity = 0
+            msg = 'Gateway Service {}:{} : Reachable'.format(gateway_ip, gateway_port)
+            # response_body = yield readBody(response)
+        except TimeoutError as e:
+            severity = 3
+            msg = 'Gateway Service {}:{} : Time out'.format(gateway_ip, gateway_port)
+        except Exception as e:
+            severity = 3
+            msg = 'Gateway Service {}:{} : NOT reachable'.format(gateway_ip, gateway_port)
+
+        # Check for response and response._state
+
+
+        data = self.new_data()
+        data['values'][ds0.component]['gw_status'] = severity
+        data['events'].append({
+            'device': config.id,
+            'component': ds0.component,
+            'severity': severity,
+            'eventKey': 'GatewayService',
+            'eventClassKey': 'GatewayService',
+            'summary': msg,
+            'message': msg,
+            'eventClass': '/Status/DataPower/GatewayService',
+        })
+
+        returnValue(data)
 
