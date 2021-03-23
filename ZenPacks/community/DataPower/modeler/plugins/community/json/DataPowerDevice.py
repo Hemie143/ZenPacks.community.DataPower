@@ -1,22 +1,19 @@
 # stdlib Imports
-import json
 import base64
-import re
-
-# Twisted Imports
-from twisted.internet import reactor
-from twisted.internet.defer import inlineCallbacks, returnValue, DeferredSemaphore, DeferredList
-from twisted.web.client import getPage, Agent
+import json
 
 # Zenoss Imports
 from Products.DataCollector.plugins.CollectorPlugin import PythonPlugin
-from Products.DataCollector.plugins.DataMaps import ObjectMap, RelationshipMap, MultiArgs
-from Products.ZenUtils.Utils import monkeypatch
+from Products.DataCollector.plugins.DataMaps import MultiArgs
+from ZenPacks.community.DataPower.lib.utils import SkipCertifContextFactory
+
+# Twisted Imports
+from twisted.internet import reactor
+from twisted.internet.defer import inlineCallbacks, returnValue
+from twisted.web.client import Agent, readBody
+from twisted.web.http_headers import Headers
 
 
-# TODO : CamelCase (check in YAML)
-# TODO : cleanup
-# TODO : PEP8
 class DataPowerDevice(PythonPlugin):
     """
     Doc about this plugin
@@ -55,11 +52,22 @@ class DataPowerDevice(PythonPlugin):
         log.debug('url: {}'.format(url))
         basicAuth = base64.encodestring('{}:{}'.format(username, password))
         authHeader = "Basic " + basicAuth.strip()
-        headers = {"Authorization": authHeader,
-                   "User-Agent": "Mozilla/3.0Gold",
+        headers = {"Authorization": [authHeader],
+                   "User-Agent": ["Mozilla/3.0Gold"],
                    }
+        agent = Agent(reactor, contextFactory=SkipCertifContextFactory())
+        try:
+            response = yield agent.request('GET', url, Headers(headers))
+            response_body = yield readBody(response)
+            results = json.loads(response_body)
+        except:
+            log.error('{}: {}'.format(device.id, e))
+
+        returnValue(results)
+        '''
         d = yield getPage(url, headers=headers)
         returnValue(d)
+        '''
 
     def process(self, device, results, log):
         """
@@ -69,7 +77,6 @@ class DataPowerDevice(PythonPlugin):
             - An ObjectMap, for the device device information
             - A list of RelationshipMaps and ObjectMaps, both
         """
-        results = json.loads(results)
         info = results.get('FirmwareStatus2', [])
 
         om = self.objectMap()
