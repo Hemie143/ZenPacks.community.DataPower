@@ -58,13 +58,34 @@ class DataPowerDomain(PythonPlugin):
                    "User-Agent": ["Mozilla/3.0Gold"],
                    }
         agent = Agent(reactor, contextFactory=SkipCertifContextFactory())
+        results = {}
         try:
             response = yield agent.request('GET', url, Headers(headers))
             response_body = yield readBody(response)
-            results = json.loads(response_body)
+            results['domains'] = json.loads(response_body)
         except:
             log.error('{}: {}'.format(device.id, e))
 
+        domains = [d['Domain'] for d in results['domains']['DomainStatus']]
+        log.debug('domains: {}'.format(domains))
+
+        results['gateways'] = {}
+        for domain in domains:
+            try:
+                url = "https://{}:{}/mgmt/config/{}/APIConnectGatewayService".format(ip_address, port, domain)
+                response = yield agent.request('GET', url, Headers(headers))
+                response_body = yield readBody(response)
+                results['gateways'][domain] = json.loads(response_body)
+            except Exception as e:
+                log.error('{}: {}'.format(device.id, e))
+
+        url = "https://{}:{}/mgmt/config/default/HostAlias".format(ip_address, port)
+        try:
+            response = yield agent.request('GET', url, Headers(headers))
+            response_body = yield readBody(response)
+            results['hostalias'] = json.loads(response_body)
+        except Exception as e:
+            log.error('{}: {}'.format(device.id, e))
         returnValue(results)
 
     def process(self, device, results, log):
@@ -75,20 +96,53 @@ class DataPowerDomain(PythonPlugin):
             - An ObjectMap, for the device device information
             - A list of RelationshipMaps and ObjectMaps, both
         """
-        domains = results.get('DomainStatus', [])
 
-        domain_maps = []
         rm = []
-        for domain in domains:
-            domain_name = domain['Domain']
-            om_domain = ObjectMap()
-            om_domain.id = self.prepId(domain_name)
-            om_domain.title = domain_name
-            domain_maps.append(om_domain)
+        if 'domains' in results:
+            domains = results['domains'].get('DomainStatus', [])
+            domain_maps = []
+            for domain in domains:
+                domain_name = domain['Domain']
+                om_domain = ObjectMap()
+                om_domain.id = self.prepId(domain_name)
+                om_domain.title = domain_name
+                domain_maps.append(om_domain)
 
-        rm.append(RelationshipMap(compname='',
-                                  relname='dataPowerDomains',
-                                  modname='ZenPacks.community.DataPower.DataPowerDomain',
-                                  objmaps=domain_maps))
+            rm.append(RelationshipMap(compname='',
+                                      relname='dataPowerDomains',
+                                      modname='ZenPacks.community.DataPower.DataPowerDomain',
+                                      objmaps=domain_maps))
+
+        host_dict = {}
+        if 'hostalias' in results:
+            for host in results["hostalias"]['HostAlias']:
+                host_dict[host['name']] = host['IPAddress']
+
+        if 'gateways' in results:
+            domains_data = results['gateways']
+            for domain_name, domain_data in domains_data.items():
+                if "APIConnectGatewayService" not in domain_data:
+                    continue
+                maps = []
+                comp_domain = 'dataPowerDomains/{}'.format(self.prepId(domain_name))
+                apicgw = domain_data["APIConnectGatewayService"]
+                gw_address = apicgw["APIGatewayAddress"]
+                if gw_address == '0.0.0.0':
+                    continue
+                gw_ip = host_dict.get(gw_address, None)
+                gw_port = apicgw["APIGatewayPort"]
+                om_gw = ObjectMap()
+                om_gw.id = self.prepId('{}_{}_{}'.format(domain_name, gw_address, gw_port))
+                om_gw.title = '{} ({}:{})'.format(gw_address, gw_ip, gw_port)
+                om_gw.domain = domain_name
+                om_gw.gateway_address = gw_address
+                om_gw.gateway_port = gw_port
+                om_gw.gateway_ip = gw_ip
+                maps.append(om_gw)
+
+                rm.append(RelationshipMap(relname='dataPowerGateways',
+                                          modname='ZenPacks.community.DataPower.DataPowerGateway',
+                                          compname=comp_domain,
+                                          objmaps=maps))
         log.debug('rm: {}'.format(rm))
         return rm
