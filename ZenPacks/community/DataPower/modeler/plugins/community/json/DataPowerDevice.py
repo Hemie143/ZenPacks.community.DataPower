@@ -64,10 +64,6 @@ class DataPowerDevice(PythonPlugin):
             log.error('{}: {}'.format(device.id, e))
 
         returnValue(results)
-        '''
-        d = yield getPage(url, headers=headers)
-        returnValue(d)
-        '''
 
     def process(self, device, results, log):
         """
