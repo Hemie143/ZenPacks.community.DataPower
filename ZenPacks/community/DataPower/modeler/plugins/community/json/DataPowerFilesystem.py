@@ -29,10 +29,6 @@ class DataPowerFilesystem(PythonPlugin):
 
     deviceProperties = PythonPlugin.deviceProperties + requiredProperties
 
-    @staticmethod
-    def add_tag(result, label):
-        return tuple((label, result))
-
     @inlineCallbacks
     def collect(self, device, log):
         log.debug('{}: Modeling collect'.format(device.id))
