@@ -1,18 +1,18 @@
+import base64
 import json
 import logging
-import base64
 import re
+
+# Zenoss imports
+from ZenPacks.community.DataPower.lib.utils import SkipCertifContextFactory
+from ZenPacks.zenoss.PythonCollector.datasources.PythonDataSource import PythonDataSourcePlugin
 
 # Twisted Imports
 from twisted.internet import reactor
-from twisted.internet.defer import returnValue, DeferredSemaphore, DeferredList, inlineCallbacks
-from twisted.web.client import getPage, Agent, readBody
-from twisted.web.http_headers import Headers
+from twisted.internet.defer import returnValue, inlineCallbacks
 from twisted.internet.error import TimeoutError
-
-# Zenoss imports
-from ZenPacks.zenoss.PythonCollector.datasources.PythonDataSource import PythonDataSourcePlugin
-from Products.ZenUtils.Utils import prepId
+from twisted.web.client import Agent, readBody
+from twisted.web.http_headers import Headers
 
 # Setup logging
 log = logging.getLogger('zen.DataPowerDomain')
@@ -28,10 +28,6 @@ class DomainState(PythonDataSourcePlugin):
     domain_if_state = {
         'ok': 0,
     }
-
-    @staticmethod
-    def add_tag(result, label):
-        return tuple((label, result))
 
     @classmethod
     def config_key(cls, datasource, context):
@@ -57,16 +53,23 @@ class DomainState(PythonDataSourcePlugin):
         log.debug('url: {}'.format(url))
         basicAuth = base64.encodestring('{}:{}'.format(ds0.zDataPowerUsername, ds0.zDataPowerPassword))
         authHeader = "Basic " + basicAuth.strip()
-        headers = {"Authorization": authHeader,
-                   "User-Agent": "Mozilla/3.0Gold",
+        headers = {"Authorization": [authHeader],
+                   "User-Agent": ["Mozilla/3.0Gold"],
                    }
-        d = yield getPage(url, headers=headers)
-        returnValue(d)
+        agent = Agent(reactor, contextFactory=SkipCertifContextFactory())
+        try:
+            response = yield agent.request('GET', url, Headers(headers))
+            response_body = yield readBody(response)
+            results = json.loads(response_body)
+        except:
+            log.error('{}: {}'.format(device.id, e))
+
+        returnValue(results)
+
 
     def onSuccess(self, result, config):
         log.debug('Success job - result is {}'.format(result))
         data = self.new_data()
-        result = json.loads(result)
         domain_status = result['DomainStatus']
 
         for datasource in config.datasources:
@@ -105,10 +108,6 @@ class DomainObject(PythonDataSourcePlugin):
         'zDomainObjectIgnoreNames',
     )
 
-    @staticmethod
-    def add_tag(result, label):
-        return tuple((label, result))
-
     @classmethod
     def config_key(cls, datasource, context):
         log.debug('In config_key {} {} {} {}'.format(context.device().id, datasource.getCycleTime(context), context.id,
@@ -132,22 +131,28 @@ class DomainObject(PythonDataSourcePlugin):
         ds0 = config.datasources[0]
         basicAuth = base64.encodestring('{}:{}'.format(ds0.zDataPowerUsername, ds0.zDataPowerPassword))
         authHeader = "Basic " + basicAuth.strip()
-        headers = {"Authorization": authHeader,
-                   "User-Agent": "Mozilla/3.0Gold",
+        headers = {"Authorization": [authHeader],
+                   "User-Agent": ["Mozilla/3.0Gold"],
                    }
+        agent = Agent(reactor, contextFactory=SkipCertifContextFactory())
 
         for datasource in config.datasources:
             d_id = datasource.component
             url = "https://{}:{}/mgmt/status/{}/ObjectStatus".format(ip_address, datasource.zDataPowerPort, d_id)
             log.debug('url: {}'.format(url))
-            d = yield getPage(url, headers=headers)
-
-        returnValue(d)
+            try:
+                response = yield agent.request('GET', url, Headers(headers))
+                response_body = yield readBody(response)
+                # log.debug('response_body: {}'.format(response_body))
+                results = json.loads(response_body)
+                # log.debug('results: {}'.format(results))
+            except:
+                log.error('{}: {}'.format(device.id, e))
+        returnValue(results)
 
     def onSuccess(self, result, config):
         # log.debug('Success job - result is {}'.format(result))
         data = self.new_data()
-        result = json.loads(result)
 
         ds0 = config.datasources[0]
         ignoreNames = ds0.zDomainObjectIgnoreNames
@@ -195,10 +200,6 @@ class GatewayService(PythonDataSourcePlugin):
         'zDataPowerPassword',
     )
 
-    @staticmethod
-    def add_tag(result, label):
-        return tuple((label, result))
-
     @classmethod
     def config_key(cls, datasource, context):
         log.debug('In config_key {} {} {} {}'.format(context.device().id, datasource.getCycleTime(context), context.id,
@@ -243,6 +244,7 @@ class GatewayService(PythonDataSourcePlugin):
         response = None
         severity = 3
         msg = None
+        # TODO: Include state and http_code in results ?
         try:
             response = yield agent.request('GET', url, Headers(headers))
             severity = 0
@@ -255,9 +257,8 @@ class GatewayService(PythonDataSourcePlugin):
             severity = 3
             msg = 'Gateway Service {}:{} : NOT reachable'.format(gateway_ip, gateway_port)
 
+        # TODO: Split collect from process
         # Check for response and response._state
-
-
         data = self.new_data()
         data['values'][ds0.component]['gw_status'] = severity
         data['events'].append({

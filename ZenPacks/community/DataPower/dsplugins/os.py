@@ -1,20 +1,16 @@
+import base64
 import json
 import logging
-import base64
-import re
+
+# Zenoss imports
+from ZenPacks.community.DataPower.lib.utils import SkipCertifContextFactory
+from ZenPacks.zenoss.PythonCollector.datasources.PythonDataSource import PythonDataSourcePlugin
 
 # Twisted Imports
-from twisted.internet.defer import returnValue, DeferredSemaphore, DeferredList, inlineCallbacks
-from twisted.web.client import getPage
 from twisted.internet import reactor
 from twisted.internet.defer import inlineCallbacks, returnValue
 from twisted.web.client import Agent, readBody
 from twisted.web.http_headers import Headers
-
-# Zenoss imports
-from ZenPacks.zenoss.PythonCollector.datasources.PythonDataSource import PythonDataSourcePlugin
-from Products.ZenUtils.Utils import prepId
-from ZenPacks.community.DataPower.lib.utils import SkipCertifContextFactory
 
 # Setup logging
 log = logging.getLogger('zen.DataPowerOS')
