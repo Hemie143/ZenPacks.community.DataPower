@@ -6,10 +6,15 @@ import re
 # Twisted Imports
 from twisted.internet.defer import returnValue, DeferredSemaphore, DeferredList, inlineCallbacks
 from twisted.web.client import getPage
+from twisted.internet import reactor
+from twisted.internet.defer import inlineCallbacks, returnValue
+from twisted.web.client import Agent, readBody
+from twisted.web.http_headers import Headers
 
 # Zenoss imports
 from ZenPacks.zenoss.PythonCollector.datasources.PythonDataSource import PythonDataSourcePlugin
 from Products.ZenUtils.Utils import prepId
+from ZenPacks.community.DataPower.lib.utils import SkipCertifContextFactory
 
 # Setup logging
 log = logging.getLogger('zen.DataPowerOS')
@@ -21,10 +26,6 @@ class Cpu(PythonDataSourcePlugin):
         'zDataPowerUsername',
         'zDataPowerPassword',
     )
-
-    @staticmethod
-    def add_tag(result, label):
-        return tuple((label, result))
 
     @classmethod
     def config_key(cls, datasource, context):
@@ -50,20 +51,24 @@ class Cpu(PythonDataSourcePlugin):
         log.debug('url: {}'.format(url))
         basicAuth = base64.encodestring('{}:{}'.format(ds0.zDataPowerUsername, ds0.zDataPowerPassword))
         authHeader = "Basic " + basicAuth.strip()
-        headers = {"Authorization": authHeader,
-                   "User-Agent": "Mozilla/3.0Gold",
+        headers = {"Authorization": [authHeader],
+                   "User-Agent": ["Mozilla/3.0Gold"],
                    }
-        d = yield getPage(url, headers=headers)
-        returnValue(d)
+        agent = Agent(reactor, contextFactory=SkipCertifContextFactory())
+        try:
+            response = yield agent.request('GET', url, Headers(headers))
+            response_body = yield readBody(response)
+            results = json.loads(response_body)
+        except:
+            log.error('{}: {}'.format(device.id, e))
+        returnValue(results)
 
     def onSuccess(self, result, config):
         log.debug('Success job - result is {}'.format(result))
         data = self.new_data()
-        result = json.loads(result)
 
         data['values'][None]['cpu_cpuusage1'] = result['CPUUsage']['oneMinute']
         data['values'][None]['cpu_cpuusage10'] = result['CPUUsage']['tenMinutes']
-        log.debug('CPU Data: {}'.format(data))
         return data
 
     def onError(self, result, config):
@@ -103,16 +108,21 @@ class Memory(PythonDataSourcePlugin):
         log.debug('url: {}'.format(url))
         basicAuth = base64.encodestring('{}:{}'.format(ds0.zDataPowerUsername, ds0.zDataPowerPassword))
         authHeader = "Basic " + basicAuth.strip()
-        headers = {"Authorization": authHeader,
-                   "User-Agent": "Mozilla/3.0Gold",
+        headers = {"Authorization": [authHeader],
+                   "User-Agent": ["Mozilla/3.0Gold"],
                    }
-        d = yield getPage(url, headers=headers)
-        returnValue(d)
+        agent = Agent(reactor, contextFactory=SkipCertifContextFactory())
+        try:
+            response = yield agent.request('GET', url, Headers(headers))
+            response_body = yield readBody(response)
+            results = json.loads(response_body)
+        except:
+            log.error('{}: {}'.format(device.id, e))
+        returnValue(results)
 
     def onSuccess(self, result, config):
         log.debug('Success job - result is {}'.format(result))
         data = self.new_data()
-        result = json.loads(result)
         data['values'][None]['memory_totalmemory'] = result['MemoryStatus']['TotalMemory']
         data['values'][None]['memory_usedmemory'] = result['MemoryStatus']['UsedMemory']
         data['values'][None]['memory_reqmemory'] = result['MemoryStatus']['ReqMemory']
@@ -174,20 +184,25 @@ class Interface(PythonDataSourcePlugin):
         log.debug('url: {}'.format(url))
         basicAuth = base64.encodestring('{}:{}'.format(ds0.zDataPowerUsername, ds0.zDataPowerPassword))
         authHeader = "Basic " + basicAuth.strip()
-        headers = {"Authorization": authHeader,
-                   "User-Agent": "Mozilla/3.0Gold",
+        headers = {"Authorization": [authHeader],
+                   "User-Agent": ["Mozilla/3.0Gold"],
                    }
-        d = yield getPage(url, headers=headers)
-        returnValue(d)
+        agent = Agent(reactor, contextFactory=SkipCertifContextFactory())
+        try:
+            response = yield agent.request('GET', url, Headers(headers))
+            response_body = yield readBody(response)
+            results = json.loads(response_body)
+        except:
+            log.error('{}: {}'.format(device.id, e))
+        returnValue(results)
 
     def onSuccess(self, result, config):
         log.debug('Success job - result is {}'.format(result))
         data = self.new_data()
-        result = json.loads(result)['NetworkInterfaceStatus']
+        result = result['NetworkInterfaceStatus']
 
         for datasource in config.datasources:
             if_id = datasource.component
-            log.debug('AAA if_id: {}'.format(if_id))
             for interface in result:
                 # TODO : enhance this, as it will work only if the id is identical to the interface name
                 if interface['Name'] == if_id:
@@ -270,16 +285,23 @@ class DataPowerFileSystem(PythonDataSourcePlugin):
         log.debug('url: {}'.format(url))
         basicAuth = base64.encodestring('{}:{}'.format(ds0.zDataPowerUsername, ds0.zDataPowerPassword))
         authHeader = "Basic " + basicAuth.strip()
-        headers = {"Authorization": authHeader,
-                   "User-Agent": "Mozilla/3.0Gold",
+        headers = {"Authorization": [authHeader],
+                   "User-Agent": ["Mozilla/3.0Gold"],
                    }
-        d = yield getPage(url, headers=headers)
-        returnValue(d)
+        agent = Agent(reactor, contextFactory=SkipCertifContextFactory())
+        try:
+            response = yield agent.request('GET', url, Headers(headers))
+            response_body = yield readBody(response)
+            results = json.loads(response_body)
+        except:
+            log.error('{}: {}'.format(device.id, e))
+
+        returnValue(results)
+
 
     def onSuccess(self, result, config):
         log.debug('Success job - result is {}'.format(result))
         data = self.new_data()
-        result = json.loads(result)
         filesystem_metrics = result['FilesystemStatus']
 
         for datasource in config.datasources:
