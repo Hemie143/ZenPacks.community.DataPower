@@ -9,8 +9,6 @@ from Products.DataCollector.plugins.DataMaps import ObjectMap, RelationshipMap
 from ZenPacks.community.DataPower.lib.utils import SkipCertifContextFactory
 
 # Twisted Imports
-from twisted.internet.defer import inlineCallbacks, returnValue
-from twisted.web.client import getPage
 from twisted.internet import reactor
 from twisted.internet.defer import inlineCallbacks, returnValue
 from twisted.web.client import Agent, readBody

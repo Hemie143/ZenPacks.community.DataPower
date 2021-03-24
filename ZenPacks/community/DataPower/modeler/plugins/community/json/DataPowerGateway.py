@@ -1,22 +1,19 @@
 # stdlib Imports
-import json
 import base64
-import re
-
-# Twisted Imports
-from twisted.internet import reactor
-from twisted.internet.defer import inlineCallbacks, returnValue, DeferredSemaphore, DeferredList
-from twisted.web.client import getPage, Agent
+import json
 
 # Zenoss Imports
 from Products.DataCollector.plugins.CollectorPlugin import PythonPlugin
 from Products.DataCollector.plugins.DataMaps import ObjectMap, RelationshipMap
-from Products.ZenUtils.Utils import monkeypatch
+from ZenPacks.community.DataPower.lib.utils import SkipCertifContextFactory
+
+# Twisted Imports
+from twisted.internet import reactor
+from twisted.internet.defer import inlineCallbacks, returnValue
+from twisted.web.client import Agent, readBody
+from twisted.web.http_headers import Headers
 
 
-# TODO : CamelCase (check in YAML)
-# TODO : cleanup
-# TODO : PEP8
 class DataPowerGateway(PythonPlugin):
     """
     Doc about this plugin
@@ -55,21 +52,27 @@ class DataPowerGateway(PythonPlugin):
         domains = device.get_domains
         basicAuth = base64.encodestring('{}:{}'.format(username, password))
         authHeader = "Basic " + basicAuth.strip()
-        headers = {"Authorization": authHeader,
-                   "User-Agent": "Mozilla/3.0Gold",
+        headers = {"Authorization": [authHeader],
+                   "User-Agent": ["Mozilla/3.0Gold"],
                    }
-        deferreds = []
-        sem = DeferredSemaphore(1)
+        agent = Agent(reactor, contextFactory=SkipCertifContextFactory())
+        results = {'domains': {}}
         for domain in domains:
-            url = "https://{}:{}/mgmt/config/{}/APIConnectGatewayService".format(ip_address, port, domain['name'])
-            d = sem.run(getPage, url, headers=headers)
-            deferreds.append(d)
+            try:
+                url = "https://{}:{}/mgmt/config/{}/APIConnectGatewayService".format(ip_address, port, domain['name'])
+                response = yield agent.request('GET', url, Headers(headers))
+                response_body = yield readBody(response)
+                results['domains'][domain['name']] = json.loads(response_body)
+            except Exception as e:
+                log.error('{}: {}'.format(device.id, e))
 
         url = "https://{}:{}/mgmt/config/default/HostAlias".format(ip_address, port)
-        d = sem.run(getPage, url, headers=headers)
-        deferreds.append(d)
-
-        results = yield DeferredList(deferreds, consumeErrors=True)
+        try:
+            response = yield agent.request('GET', url, Headers(headers))
+            response_body = yield readBody(response)
+            results['hostalias'] = json.loads(response_body)
+        except Exception as e:
+            log.error('{}: {}'.format(device.id, e))
         returnValue(results)
 
     def process(self, device, results, log):
@@ -82,34 +85,28 @@ class DataPowerGateway(PythonPlugin):
         """
         # Just retrieve the Host Aliases
         host_dict = {}
-        for success, item in results:
-            item = json.loads(item)
-            if "HostAlias" not in item:
-                continue
-            for host in item["HostAlias"]:
+        if 'hostalias' in results:
+            for host in results["hostalias"]['HostAlias']:
                 host_dict[host['name']] = host['IPAddress']
 
         rm = []
-        for success, item in results:
-            item = json.loads(item)
-            if "APIConnectGatewayService" not in item:
-                continue
-            href = item["_links"]["self"]["href"]
-            r = re.match("/mgmt/config/(.*)/APIConnectGatewayService", href)
-            if r:
+        if 'domains' in results:
+            domains_data = results['domains']
+            for domain_name, domain_data in domains_data.items():
+                if "APIConnectGatewayService" not in domain_data:
+                    continue
                 maps = []
-                domain = r.group(1)
-                comp_domain = 'dataPowerDomains/{}'.format(self.prepId(domain))
-                apicgw = item["APIConnectGatewayService"]
+                comp_domain = 'dataPowerDomains/{}'.format(self.prepId(domain_name))
+                apicgw = domain_data["APIConnectGatewayService"]
                 gw_address = apicgw["APIGatewayAddress"]
                 if gw_address == '0.0.0.0':
                     continue
                 gw_ip = host_dict.get(gw_address, None)
                 gw_port = apicgw["APIGatewayPort"]
                 om_gw = ObjectMap()
-                om_gw.id = self.prepId('{}_{}_{}'.format(domain, gw_address, gw_port))
+                om_gw.id = self.prepId('{}_{}_{}'.format(domain_name, gw_address, gw_port))
                 om_gw.title = '{} ({}:{})'.format(gw_address, gw_ip, gw_port)
-                om_gw.domain = domain
+                om_gw.domain = domain_name
                 om_gw.gateway_address = gw_address
                 om_gw.gateway_port = gw_port
                 om_gw.gateway_ip = gw_ip
