@@ -4,14 +4,14 @@ import logging
 import re
 
 # Zenoss imports
-from ZenPacks.community.DataPower.lib.utils import SkipCertifContextFactory
+from ZenPacks.community.DataPower.lib.utils import SkipCertifContextFactory, StringProtocol
 from ZenPacks.zenoss.PythonCollector.datasources.PythonDataSource import PythonDataSourcePlugin
 
 # Twisted Imports
 from twisted.internet import reactor
 from twisted.internet.defer import returnValue, inlineCallbacks
 from twisted.internet.error import TimeoutError
-from twisted.web.client import Agent, readBody
+from twisted.web.client import Agent, readBody, RedirectAgent
 from twisted.web.http_headers import Headers
 
 # Setup logging
@@ -202,14 +202,19 @@ class GatewayService(PythonDataSourcePlugin):
 
     @classmethod
     def config_key(cls, datasource, context):
-        log.debug('In config_key {} {} {} {}'.format(context.device().id, datasource.getCycleTime(context), context.id,
-                                                     'GatewayService'))
+        log.info('In config_key {} {} {} {} {}'.format(context.device().id,
+                                                       datasource.getCycleTime(context),
+                                                       datasource.rrdTemplate().id,
+                                                       datasource.id,
+                                                       datasource.plugin_classname,
+                                                       ))
 
         return (
             context.device().id,
             datasource.getCycleTime(context),
-            context.id,
-            'GatewayService'
+            datasource.rrdTemplate().id,
+            datasource.id,
+            datasource.plugin_classname,
         )
 
     @classmethod
@@ -228,7 +233,7 @@ class GatewayService(PythonDataSourcePlugin):
             log.error("%s: IP Address cannot be empty", device.id)
             returnValue(None)
 
-        agent = Agent(reactor)
+        agent = RedirectAgent(Agent(reactor, contextFactory=SkipCertifContextFactory()))
 
         ds0 = config.datasources[0]
         basicAuth = base64.encodestring('{}:{}'.format(ds0.zDataPowerUsername, ds0.zDataPowerPassword))
@@ -237,40 +242,51 @@ class GatewayService(PythonDataSourcePlugin):
                    "User-Agent": ['Mozilla/3.0Gold'],
                    }
 
-        ds0 = config.datasources[0]
-        gateway_ip = ds0.params['gateway_ip']
-        gateway_port = ds0.params['gateway_port']
-        url = "https://{}:{}".format(gateway_ip, gateway_port)
-        response = None
-        severity = 3
-        msg = None
-        # TODO: Include state and http_code in results ?
-        try:
-            response = yield agent.request('GET', url, Headers(headers))
-            severity = 0
-            msg = 'Gateway Service {}:{} : Reachable'.format(gateway_ip, gateway_port)
-            # response_body = yield readBody(response)
-        except TimeoutError as e:
-            severity = 3
-            msg = 'Gateway Service {}:{} : Time out'.format(gateway_ip, gateway_port)
-        except Exception as e:
-            severity = 3
-            msg = 'Gateway Service {}:{} : NOT reachable'.format(gateway_ip, gateway_port)
+        results = {}
+        for ds in config.datasources:
+            gateway_ip = ds.params['gateway_ip']
+            gateway_port = ds.params['gateway_port']
+            url = "https://{}:{}/webapi-init-check".format(gateway_ip, gateway_port)
+            results[ds.component] = {}
+            try:
+                response = yield agent.request('GET', url, Headers(headers))
+                log.debug('HTTP code : **{}**'.format(response.code))
+                results[ds.component]['http_code'] = response.code
+                # The body is empty in all cases
+            except Exception as e:
+                log.error('Gateway Services - collect: {} - {}'.format(e.args, e))
+                results[ds.component]['http_code'] = -1
+        returnValue(results)
 
-        # TODO: Split collect from process
-        # Check for response and response._state
+    def onSuccess(self, results, config):
+        log.debug('Success - result is {}'.format(results))
+
         data = self.new_data()
-        data['values'][ds0.component]['gw_status'] = severity
-        data['events'].append({
-            'device': config.id,
-            'component': ds0.component,
-            'severity': severity,
-            'eventKey': 'GatewayService',
-            'eventClassKey': 'GatewayService',
-            'summary': msg,
-            'message': msg,
-            'eventClass': '/Status/DataPower/GatewayService',
-        })
+        for ds in config.datasources:
+            component = ds.component
+            if component in results:
+                result = results[component]
+                gateway_ip = ds.params['gateway_ip']
+                gateway_port = ds.params['gateway_port']
+                if result['http_code'] == -1:
+                    severity = 4
+                    msg = 'Gateway Service {}:{} : Down'.format(gateway_ip, gateway_port)
+                elif result['http_code'] > 399:
+                    severity = 4
+                    msg = 'Gateway Service {}:{} : HTTP code={}'.format(gateway_ip, gateway_port, result['http_code'])
+                else:
+                    severity = 0
+                    msg = 'Gateway Service {}:{} : Up'.format(gateway_ip, gateway_port)
 
-        returnValue(data)
-
+                data['values'][component]['gw_status'] = severity
+                data['events'].append({
+                    'device': config.id,
+                    'component': component,
+                    'severity': severity,
+                    'eventKey': 'GatewayService',
+                    'eventClassKey': 'GatewayService',
+                    'summary': msg,
+                    'message': msg,
+                    'eventClass': '/Status/DataPower/GatewayService',
+                })
+        return data
